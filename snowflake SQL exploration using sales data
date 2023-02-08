@@ -1,0 +1,134 @@
+--exploratory analysis in snowflake using snowflake's built in sample data---
+
+------checking which regions have most sales----
+select 
+cc.cc_name,
+split_part(d_date,'-',2) as dt_month,
+round(sum(cs.cs_wholesale_cost),0) cs_wholesale_cost,
+round(sum(cs.cs_net_paid_inc_ship_tax),0) cs_net_paid_inc_ship_tax,
+round(sum(cs.cs_net_profit),0) cs_net_profit,
+round(sum(cs.cs_quantity*cs.cs_sales_price),0) cs_net_paid,
+round(sum(cs.cs_quantity*cs.cs_sales_price)-sum(cs_quantity*cs.cs_wholesale_cost),0) cs_net_profit_calc
+
+from 
+
+catalog_sales cs 
+join item i on (cs.cs_item_sk = i.i_item_sk)
+join date_dim d on (d.d_date_sk = cs.cs_sold_date_sk)
+join call_center cc on (cc.cc_call_center_sk = cs.cs_call_center_sk)
+
+where 
+d_date between '2000-01-01' and '2000-06-30'
+
+group by 
+cc.cc_name,
+split_part(d_date,'-',2) 
+
+order by cs_net_paid, dt_month
+
+----result: seems like hawaii, mid atlantic, and the north midwest office are leaders
+
+------checking which items in what price range are most purchased and profitable in Jan 2000
+
+select 
+i.i_class,
+case when cs.cs_sales_price between 0 and 5 then '0-5'
+when cs.cs_sales_price between 5 and 25 then '5-25'
+when cs.cs_sales_price between 25 and 50 then '25-50'
+when cs.cs_sales_price between 50 and 100 then '50-100'
+when cs.cs_sales_price between 100 and 200 then '100-200'
+when cs.cs_sales_price >= 200 then '>200'
+end as sales_price_buckets,
+count(i.i_item_sk) as items_sold,
+sum(cs.cs_net_profit) cs_net_profit
+
+from 
+catalog_sales cs 
+join item i on (cs.cs_item_sk = i.i_item_sk)
+join date_dim d on (d.d_date_sk = cs.cs_sold_date_sk)
+join call_center cc on (cc.cc_call_center_sk = cs.cs_call_center_sk)
+
+where d_date between '2000-01-01' and '2000-01-31'
+
+group by
+i.i_class,
+case when cs.cs_sales_price between 0 and 5 then '0-5'
+when cs.cs_sales_price between 5 and 25 then '5-25'
+when cs.cs_sales_price between 25 and 50 then '25-50'
+when cs.cs_sales_price between 50 and 100 then '50-100'
+when cs.cs_sales_price between 100 and 200 then '100-200'
+when cs.cs_sales_price >= 200 then '>200'
+end
+
+order by items_sold desc
+
+----result: seems like children's toys between $5-$25 are the most popular those toys between $50-$100 are the most popular 
+
+
+---using temp table to understand if offices that have a certain price range orientation are more profitable
+---for example, do offices that mostly sell expensive items have higher profits or rather offices that sell higher quantity of low price items
+
+---creating temp table
+create temporary table price_orientation as (
+select
+cc_name,
+cc_call_center_sk,
+case when items_0_5>=0.65 then '0-5 items oriented'
+when items_5_25>=0.65 then '5-25 items oriented'
+when items_25_50>=0.65 then '25-50 items oriented'
+when items_50_100>=0.65 then '50-100 items oriented'
+when items_100_200>=0.65 then '100-200 items oriented'
+when items_above_200>=0.65 then '>=200 items oriented'
+end as price_range_orientation
+
+from(
+
+select 
+cc.cc_name,
+cc.cc_call_center_sk,
+count(case when cs.cs_sales_price between 0 and 5 then i.i_item_sk else null end)*1.00/count(i.i_item_sk)*1.00 as items_0_5,
+count(case when cs.cs_sales_price between 5 and 25 then i.i_item_sk else null end)*1.00/count(i.i_item_sk)*1.00 items_5_25,
+count(case when cs.cs_sales_price between 25 and 50 then i.i_item_sk else null end)*1.00/count(i.i_item_sk)*1.00 items_25_50,
+count(case when cs.cs_sales_price between 50 and 100 then i.i_item_sk else null end)*1.00/count(i.i_item_sk)*1.00 items_50_100,
+count(case when cs.cs_sales_price between 100 and 200 then i.i_item_sk else null end)*1.00/count(i.i_item_sk)*1.00 items_100_200,
+count(case when cs.cs_sales_price >=200 then i.i_item_sk else null end)*1.00/count(i.i_item_sk)*1.00 items_above_200
+
+from 
+catalog_sales cs 
+join item i on (cs.cs_item_sk = i.i_item_sk)
+join date_dim d on (d.d_date_sk = cs.cs_sold_date_sk)
+join call_center cc on (cc.cc_call_center_sk = cs.cs_call_center_sk)
+
+where d_date between '2000-01-01' and '2000-01-31'
+
+group by
+cc.cc_name,
+cc_call_center_sk) A)
+
+---joining temp table to profit and price paid KPIs
+select 
+po.price_range_orientation,
+cc.cc_name,
+round(sum(cs.cs_quantity*cs.cs_sales_price),0) cs_net_paid,
+round(sum(cs.cs_quantity*cs.cs_sales_price)-sum(cs_quantity*cs.cs_wholesale_cost),0) cs_net_profit_calc
+
+from
+catalog_sales cs 
+join item i on (cs.cs_item_sk = i.i_item_sk)
+join date_dim d on (d.d_date_sk = cs.cs_sold_date_sk)
+join call_center cc on (cc.cc_call_center_sk = cs.cs_call_center_sk)
+left join price_orientation po on (po.cc_call_center_sk = cc.cc_call_center_sk )
+
+where d_date between '2000-01-01' and '2000-01-31'
+
+group by 
+po.price_range_orientation,
+cc.cc_name
+
+order by cs_net_profit_calc
+
+
+----result: seems like offices that sell most items between $50-$100 are the most profitable, despite the fact that offices sell between $25-$50 make more sales
+
+
+
