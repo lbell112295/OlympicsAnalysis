@@ -149,6 +149,6 @@ result = rbind(Header,BRA_medal_count, BRA_gold_medal_count,
                JPN_medal_count, JPN_gold_medal_count)
 
 
-write.csv(result, file = "T:/Analysis Team/Casino/Leora/Checks/sigresults_olympics.csv")
+write.csv(result, file = "T:/desktop/sigresults_olympics.csv")
 
 
